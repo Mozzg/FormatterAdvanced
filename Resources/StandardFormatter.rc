@@ -1,0 +1,2 @@
+FormatterExecutable FORMATTEREXE "Formatter.exe"
+FormatterConfig FORMATTERCFG "StandardFormatter.config"
