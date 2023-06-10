@@ -194,6 +194,7 @@ begin
   ResetConsoleColorsToDefault;
   WriteLn('  -h, -help         Show help message.');
   WriteLn('  -c<config file>   Configuration file name to use in formatting.');
+  WriteLn('  -x<config file>   Export standard config file to specified file path or directory.');
   WriteLn('  -d<directory>     Directory for files to format. Directory option will take priority over individual files.');
   WriteLn('  -m<file mask>     File mask to match searched files when using -d option. You can define multiple masks by');
   WriteLn('                    using ; separator. Default file mask is: *.pas;*.dpr;*.dpk;*.inc');

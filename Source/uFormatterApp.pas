@@ -13,6 +13,7 @@ type
   TAppParameters = record
     HelpOption: Boolean;
     ConfigFilePath: string;
+    ConfigExportFilePath: string;
     SearchDirectoryPath: string;
     SearchDirectoryMask: string;
     RecursiveDirectorySearch: Boolean;
@@ -129,6 +130,16 @@ begin
           end;
           lCurrentParameter := Copy(lCurrentParameter, 3, lParameterLength);
           fAppParameters.ConfigFilePath := UnquoteStr(lCurrentParameter);
+        end;
+        'x':
+        begin
+          if lParameterLength = 2 then
+          begin
+            Write('Error parsing argument "' + lCurrentParameter + '", no path specified');
+            Exit(False);
+          end;
+          lCurrentParameter := Copy(lCurrentParameter, 3, lParameterLength);
+          fAppParameters.ConfigExportFilePath := UnquoteStr(lCurrentParameter);
         end;
         'd':
         begin

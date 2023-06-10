@@ -21,12 +21,10 @@ begin
       if MainApplication.ParseAndFillApplicationParameters then
       begin
         if MainApplication.AppParameters.HelpOption then
-          MainApplication.ConsoleHelper.LogUsage
-        else
-        begin
-          if not MainApplication.DoFormat then
-            MainApplication.ConsoleHelper.LogAndWaitAtExit;
-        end;
+          MainApplication.ConsoleHelper.LogUsage;
+
+        if not MainApplication.DoFormat then
+          MainApplication.ConsoleHelper.LogAndWaitAtExit;
       end
       else
         MainApplication.ConsoleHelper.LogAndWaitAtExit;
@@ -40,7 +38,8 @@ begin
   except
     on E: Exception do
     begin
-      WriteLn('Exception in application with message: ' + E.Message);
+      WriteLn;
+      Write('Exception in application with message: ' + E.Message);
       Halt(1);
     end;
   end;

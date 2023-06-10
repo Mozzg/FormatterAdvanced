@@ -30,6 +30,7 @@ type
 
     function GetGUIDTempFileName: string;
     function GetWorkingFileList: TStringList;
+    function PrepareExportConfig: Boolean;
     function PrepareSkipData(aFileList: TStringList): Boolean;
     function PrepareFormatterForExecution: Boolean;
     function ReplaceSkipData(const aFileName: string; out aConsoleOutput: string): Boolean;
@@ -177,6 +178,53 @@ begin
   end;
 end;
 
+function TFormatterLogic.PrepareExportConfig: Boolean;
+var
+  lExportPath: string;
+  lPrevDirectoryPath: string;
+  lExportFileName: string;
+  lFileStream: TFileStream;
+  lResource: TResourceStream;
+begin
+  if MainApplication.AppParameters.ConfigExportFilePath <> EmptyStr then
+  begin
+    lExportPath := MainApplication.AppParameters.ConfigExportFilePath;
+    if not TPath.IsPathRooted(lExportPath) then
+      lExportPath := ExpandFileName(lExportPath);
+    lPrevDirectoryPath := ExtractFilePath(lExportPath);
+
+    if not DirectoryExists(lPrevDirectoryPath) then
+      if not ForceDirectories(lPrevDirectoryPath) then
+        raise Exception.Create('Failed to create directory path: ' + lPrevDirectoryPath);
+
+    if lPrevDirectoryPath = IncludeTrailingPathDelimiter(lExportPath) then
+      // We received directory path
+      lExportFileName := IncludeTrailingPathDelimiter(lPrevDirectoryPath) + 'StandardFormatter.config'
+    else
+      // We received file path
+      lExportFileName := lExportPath;
+
+    lFileStream := TFileStream.Create(lExportFileName, fmCreate, fmShareExclusive);
+    try
+      lResource := TResourceStream.Create(hInstance, 'FormatterConfig', 'FORMATTERCFG');
+      try
+        lFileStream.WriteBuffer(lResource.Memory^, lResource.Size);
+      finally
+        lResource.Free;
+      end;
+    finally
+      lFileStream.Free;
+    end;
+
+    WriteLn;
+    Write('Standard config exported to file: ' + lExportFileName);
+
+    Exit(True);
+  end;
+
+  Result := False;
+end;
+
 function TFormatterLogic.PrepareSkipData(aFileList: TStringList): Boolean;
 const
   PROGRESS_WIDTH = 8;
@@ -282,16 +330,16 @@ begin
     raise Exception.Create('Failed to create temp config file');
   end;
 
-  lFileStream := TFileStream.Create(fConfigFileName, fmCreate, fmShareExclusive);
+  lResource := TResourceStream.Create(hInstance, 'FormatterConfig', 'FORMATTERCFG');
   try
-    lResource := TResourceStream.Create(hInstance, 'FormatterConfig', 'FORMATTERCFG');
+    lFileStream := TFileStream.Create(fConfigFileName, fmCreate, fmShareExclusive);
     try
       lFileStream.WriteBuffer(lResource.Memory^, lResource.Size);
     finally
-      lResource.Free;
+      lFileStream.Free;
     end;
   finally
-    lFileStream.Free;
+    lResource.Free;
   end;
 
   fFormatterFileName := GetGUIDTempFileName;
@@ -302,16 +350,16 @@ begin
     raise Exception.Create('Failed to create temp config file');
   end;
 
-  lFileStream := TFileStream.Create(fFormatterFileName, fmCreate, fmShareExclusive);
+  lResource := TResourceStream.Create(hInstance, 'FormatterExecutable', 'FORMATTEREXE');
   try
-    lResource := TResourceStream.Create(hInstance, 'FormatterExecutable', 'FORMATTEREXE');
+    lFileStream := TFileStream.Create(fFormatterFileName, fmCreate, fmShareExclusive);
     try
       lFileStream.WriteBuffer(lResource.Memory^, lResource.Size);
     finally
-      lResource.Free;
+      lFileStream.Free;
     end;
   finally
-    lFileStream.Free;
+    lResource.Free;
   end;
 
   // Prepare AnonymousPipe to capture console output from child process
@@ -370,7 +418,7 @@ begin
 
     while lStartPos <> 0 do
     begin
-      lEndPos := Pos(fEndSkipMarker, lFileText, lCurrentPos);
+      lEndPos := Pos(fEndSkipMarker, lFileText, lStartPos);
       if lEndPos = 0 then
       begin
         aConsoleOutput := 'Failed to locate end skip marker in file ' + aFileName + ' on chunk index ' + IntToStr(lCurrentChunkIndex);
@@ -380,15 +428,20 @@ begin
       Delete(lFileText, lStartPos, lEndPos - lStartPos + Length(fEndSkipMarker));
       Insert(fFilesSkipData[i].SkipChunks[lCurrentChunkIndex].Text, lFileText, lStartPos);
 
+      lCurrentPos := lStartPos + Length(fFilesSkipData[i].SkipChunks[lCurrentChunkIndex].Text) + 1;
       Inc(lCurrentChunkIndex);
-      lCurrentPos := lStartPos + 1;
       lStartPos := Pos(fStartSkipMarker, lFileText, lCurrentPos);
-
       if (lStartPos <> 0) and (lCurrentChunkIndex > High(fFilesSkipData[i].SkipChunks)) then
       begin
         aConsoleOutput := 'Skip chunk index out of range';
         Exit(False);
       end;
+    end;
+
+    if lCurrentChunkIndex <> Length(fFilesSkipData[i].SkipChunks) then
+    begin
+      aConsoleOutput := 'Saved and processed marker count mismatch';
+      Exit(False);
     end;
 
     lFileTextList.Text := lFileText;
@@ -407,6 +460,7 @@ var
   i{$IFDEF DEBUG}, j{$ENDIF}: Integer;
   lProgressCoords: TCoord;
   lExitCode: DWORD;
+  lDoneExportConfig: Boolean;
 begin
   lFileList := GetWorkingFileList;
   try
@@ -417,12 +471,19 @@ begin
       WriteLn(lFileList[i]);
     {$ENDIF}
 
+    lDoneExportConfig := PrepareExportConfig;
+
     // If we don't have files to work with, exit
     if lFileList.Count = 0 then
     begin
-      WriteLn;
-      Write('Nothing to format');
-      Exit(False);
+      if lDoneExportConfig or MainApplication.AppParameters.HelpOption then
+        Exit(True)
+      else
+      begin
+        WriteLn;
+        Write('Nothing to format');
+        Exit(False);
+      end;
     end;
 
     fStartSkipMarker := MainApplication.AppParameters.StartSkipMarker;
@@ -431,18 +492,22 @@ begin
     if not PrepareSkipData(lFileList) then
       Exit(False);
 
-    {$IFDEF DEBUG}
-    WriteLn;
-    WriteLn('Found sections:');
     for i := Low(fFilesSkipData) to High(fFilesSkipData) do
       if Length(fFilesSkipData[i].SkipChunks) > 0 then
       begin
-        WriteLn('File: ' + fFilesSkipData[i].FilePath);
+        WriteLn;
+        Write(fFilesSkipData[i].FilePath + ': ');
+        MainApplication.ConsoleHelper.LogTextWithColor(IntToStr(Length(fFilesSkipData[i].SkipChunks)) + ' skip chunks', ccYellow);
+        {$IFDEF DEBUG}
         for j := Low(fFilesSkipData[i].SkipChunks) to High(fFilesSkipData[i].SkipChunks) do
+        begin
+          WriteLn;
           WriteLn('Section#' + IntToStr(j) + ' Start=' + IntToStr(fFilesSkipData[i].SkipChunks[j].StartPosition)
               + ', End=' + IntToStr(fFilesSkipData[i].SkipChunks[j].EndPosition));
+          Write('Text=' + fFilesSkipData[i].SkipChunks[j].Text);
+        end;
+        {$ENDIF}
       end;
-    {$ENDIF}
 
     if not PrepareFormatterForExecution then
       Exit(False);
